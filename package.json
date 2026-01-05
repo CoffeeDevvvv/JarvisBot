@@ -1,13 +1,18 @@
 {
   "name": "jarvis-bot",
   "version": "1.0.0",
+  "description": "Jarvis Discord Bot with AI, NSFW, and moderation features",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
-    "discord.js": "^14.13.0",
+    "discord.js": "^14.15.1",
     "dotenv": "^16.3.1",
-    "openai": "^5.2.0"
+    "openai": "^4.9.0",
+    "node-fetch": "^3.3.2"
+  },
+  "engines": {
+    "node": "18.x"
   }
 }
