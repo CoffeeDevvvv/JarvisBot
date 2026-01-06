@@ -1,9 +1,8 @@
-require('dotenv').config(); // Loads variables from .env
-const { Client, GatewayIntentBits } = require('discord.js');
-const OpenAI = require('openai');
-const fetch = require('node-fetch'); // For pulling images from the web
+require('dotenv').config(); // Loads your .env
+const { Client, GatewayIntentBits, Partials, PermissionsBitField } = require('discord.js');
+const { OpenAI } = require('openai');
+const fetch = require('node-fetch'); // v2 version
 
-// Create Discord client
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -11,95 +10,74 @@ const client = new Client({
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.DirectMessages
     ],
-    partials: ['CHANNEL'] // Needed to receive DMs
+    partials: [Partials.Channel] // Allows DMs
 });
 
-// Create OpenAI client
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY
 });
 
-// When bot is ready
+// Ready Event
 client.on('ready', () => {
     console.log(`Logged in as ${client.user.tag}`);
 });
 
-// Command handler
-client.on('messageCreate', async message => {
+// Message Event
+client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
-    // ========== AI Chat ==========
+    const isNSFW = message.channel.nsfw || message.channel.type === 'DM';
+
+    // ---- AI Chat ----
     if (message.content.startsWith('!jarvis')) {
         const prompt = message.content.replace('!jarvis', '').trim();
-        if (!prompt) return;
+
+        if (!prompt) return message.reply("Please give me something to respond to!");
 
         try {
             const response = await openai.chat.completions.create({
                 model: "gpt-3.5-turbo",
                 messages: [{ role: "user", content: prompt }]
             });
-
             message.reply(response.choices[0].message.content);
         } catch (err) {
             console.error(err);
-            message.reply("Sorry, something went wrong with the AI.");
+            message.reply("Error contacting AI.");
         }
     }
 
-    // ========== Server Management ==========
-    if (message.guild) { // Only run in servers
-        const isMod = message.member.permissions.has("BAN_MEMBERS");
+    // ---- NSFW Image ----
+    if (message.content.startsWith('!nsfw')) {
+        if (!isNSFW) return message.reply("NSFW commands only allowed in NSFW channels or DMs.");
 
-        // Kick
-        if (message.content.startsWith('!kick') && isMod) {
-            const member = message.mentions.members.first();
-            if (member) {
-                const reason = message.content.split(' ').slice(2).join(' ') || 'No reason provided';
-                member.kick(reason).catch(console.error);
-                message.reply(`${member.user.tag} was kicked. Reason: ${reason}`);
-            }
-        }
-
-        // Ban
-        if (message.content.startsWith('!ban') && isMod) {
-            const member = message.mentions.members.first();
-            if (member) {
-                const reason = message.content.split(' ').slice(2).join(' ') || 'No reason provided';
-                member.ban({ reason }).catch(console.error);
-                message.reply(`${member.user.tag} was banned. Reason: ${reason}`);
-            }
-        }
-
-        // Purge messages
-        if (message.content.startsWith('!purge') && isMod) {
-            const args = message.content.split(' ');
-            const deleteCount = parseInt(args[1], 10);
-            if (!deleteCount || deleteCount < 1 || deleteCount > 100) return message.reply("Enter a number between 1 and 100.");
-            message.channel.bulkDelete(deleteCount + 1, true).catch(console.error);
-        }
+        // Example: pull a random image from the web (safe placeholder)
+        const imageUrl = 'https://placekitten.com/400/300'; // Replace with your source
+        message.reply({ content: "Here's something for you:", files: [imageUrl] });
     }
 
-    // ========== NSFW Images ==========
-    if ((message.channel.nsfw || message.channel.type === 'DM') && message.content.startsWith('!nsfw')) {
-        const query = message.content.replace('!nsfw', '').trim();
-        if (!query) return;
+    // ---- Server Management ----
+    if (message.content.startsWith('!kick')) {
+        if (!message.member.permissions.has(PermissionsBitField.Flags.KickMembers)) return message.reply("You can't kick people!");
+        const member = message.mentions.members.first();
+        if (!member) return message.reply("Please mention someone to kick.");
+        member.kick().then(() => message.reply(`${member.user.tag} was kicked.`));
+    }
 
-        try {
-            const searchUrl = `https://api.waifu.im/search/?included_tags=${encodeURIComponent(query)}&is_nsfw=true`;
-            const res = await fetch(searchUrl);
-            const data = await res.json();
+    if (message.content.startsWith('!ban')) {
+        if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers)) return message.reply("You can't ban people!");
+        const member = message.mentions.members.first();
+        if (!member) return message.reply("Please mention someone to ban.");
+        member.ban().then(() => message.reply(`${member.user.tag} was banned.`));
+    }
 
-            if (data.images && data.images.length > 0) {
-                message.reply({ content: data.images[0].url });
-            } else {
-                message.reply("No NSFW image found for that query.");
-            }
-        } catch (err) {
-            console.error(err);
-            message.reply("Error fetching NSFW image.");
-        }
+    if (message.content.startsWith('!purge')) {
+        if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return message.reply("You can't delete messages!");
+        const args = message.content.split(' ').slice(1);
+        const count = parseInt(args[0]);
+        if (!count || count < 1 || count > 100) return message.reply("Please specify a number between 1-100.");
+        message.channel.bulkDelete(count + 1).then(() => message.reply(`Deleted ${count} messages.`));
     }
 });
 
-// Login to Discord
+// Login
 client.login(process.env.DISCORD_TOKEN);
