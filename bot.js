@@ -1,98 +1,134 @@
 import 'dotenv/config';
 import { Client, GatewayIntentBits, PermissionsBitField, ChannelType } from 'discord.js';
 import OpenAI from 'openai';
-import fetch from 'node-fetch';
 
+// --------------------
+// Discord Client
+// --------------------
 const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.DirectMessages
-    ],
-    partials: ['CHANNEL']
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages
+  ],
+  partials: ['CHANNEL']
 });
 
+// --------------------
+// OpenAI
+// --------------------
 const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY
+  apiKey: process.env.OPENAI_API_KEY
 });
 
+// --------------------
+// Helpers
+// --------------------
 function isMod(member) {
-    return member.permissions.has(PermissionsBitField.Flags.Administrator) ||
-           member.permissions.has(PermissionsBitField.Flags.KickMembers);
+  return (
+    member.permissions.has(PermissionsBitField.Flags.Administrator) ||
+    member.permissions.has(PermissionsBitField.Flags.KickMembers)
+  );
 }
 
-client.on('ready', () => {
-    console.log(`Logged in as ${client.user.tag}!`);
+// --------------------
+// Bot Ready
+// --------------------
+client.once('clientReady', () => {
+  console.log(`Logged in as ${client.user.tag}!`);
 });
 
+// --------------------
+// Message Handler
+// --------------------
 client.on('messageCreate', async (message) => {
-    if (message.author.bot) return;
-    const content = message.content;
+  if (message.author.bot) return;
 
-    // AI chat in DMs or !jarvis command
-    if (message.channel.type === ChannelType.DM || content.startsWith('!jarvis')) {
-        const prompt = content.replace('!jarvis', '').trim();
-        if (!prompt) return;
-        try {
-            const response = await openai.chat.completions.create({
-                model: 'gpt-3.5-turbo',
-                messages: [{ role: 'user', content: prompt }]
-            });
-            await message.reply(response.choices[0].message.content);
-        } catch (err) {
-            console.error('OpenAI error:', err);
-            message.reply('Error: Could not get response from AI.');
-        }
+  const content = message.content.trim();
+
+  // =========================
+  // AI CHAT (DMs + !jarvis)
+  // =========================
+  const isDM = message.channel.type === ChannelType.DM;
+
+  if (isDM || content.startsWith('!jarvis')) {
+    const prompt = isDM
+      ? content
+      : content.replace('!jarvis', '').trim();
+
+    if (!prompt) return;
+
+    try {
+      const response = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [{ role: 'user', content: prompt }]
+      });
+
+      await message.reply(response.choices[0].message.content);
+    } catch (err) {
+      console.error('OpenAI error:', err);
+      await message.reply('⚠️ AI is unavailable right now.');
+    }
+  }
+
+  // =========================
+  // NSFW IMAGE COMMAND
+  // =========================
+  if (content === '!nsfw') {
+    if (!isDM && !message.channel.nsfw) {
+      return message.reply('🔞 This command only works in NSFW channels.');
     }
 
-    // NSFW images
-    if (content.startsWith('!nsfw')) {
-        const channel = message.channel;
-        if (channel.type === ChannelType.GuildText && !channel.nsfw) {
-            return message.reply('NSFW content is only allowed in NSFW-marked channels.');
-        }
-        try {
-            const res = await fetch('https://api.waifu.pics/nsfw/waifu');
-            const data = await res.json();
-            await message.reply(data.url);
-        } catch (err) {
-            console.error(err);
-            message.reply('Could not fetch NSFW image.');
-        }
+    try {
+      const res = await fetch('https://api.waifu.pics/nsfw/waifu');
+      const data = await res.json();
+      await message.reply(data.url);
+    } catch {
+      await message.reply('⚠️ Could not fetch image.');
     }
+  }
 
-    // Server management
-    if (!message.guild) return;
+  // =========================
+  // SERVER MOD COMMANDS
+  // =========================
+  if (!message.guild) return;
 
-    const args = content.trim().split(/ +/);
-    const cmd = args.shift().toLowerCase();
+  const args = content.split(/\s+/);
+  const cmd = args.shift()?.toLowerCase();
 
-    if (cmd === '!kick' && isMod(message.member)) {
-        const member = message.mentions.members.first();
-        if (!member) return message.reply('Please mention a user to kick.');
-        const reason = args.join(' ') || 'No reason provided';
-        member.kick(reason)
-            .then(() => message.reply(`Kicked ${member.user.tag}`))
-            .catch(() => message.reply('Failed to kick user.'));
+  if (cmd === '!kick' && isMod(message.member)) {
+    const member = message.mentions.members.first();
+    if (!member) return message.reply('Mention a user.');
+    await member.kick(args.join(' ') || 'No reason');
+    message.reply(`👢 Kicked ${member.user.tag}`);
+  }
+
+  if (cmd === '!ban' && isMod(message.member)) {
+    const member = message.mentions.members.first();
+    if (!member) return message.reply('Mention a user.');
+    await member.ban({ reason: args.join(' ') || 'No reason' });
+    message.reply(`🔨 Banned ${member.user.tag}`);
+  }
+
+  if (cmd === '!purge' && isMod(message.member)) {
+    const amount = Number(args[0]);
+    if (!amount || amount < 1 || amount > 100) {
+      return message.reply('Use a number 1–100.');
     }
-
-    if (cmd === '!ban' && isMod(message.member)) {
-        const member = message.mentions.members.first();
-        if (!member) return message.reply('Please mention a user to ban.');
-        const reason = args.join(' ') || 'No reason provided';
-        member.ban({ reason })
-            .then(() => message.reply(`Banned ${member.user.tag}`))
-            .catch(() => message.reply('Failed to ban user.'));
-    }
-
-    if (cmd === '!purge' && isMod(message.member)) {
-        const amount = parseInt(args[0]);
-        if (!amount || amount < 1 || amount > 100) return message.reply('Provide a number between 1 and 100.');
-        message.channel.bulkDelete(amount + 1, true)
-            .then(() => message.reply(`Deleted ${amount} messages.`))
-            .catch(() => message.reply('Failed to purge messages.'));
-    }
+    await message.channel.bulkDelete(amount + 1, true);
+    message.reply(`🧹 Deleted ${amount} messages.`);
+  }
 });
 
+// --------------------
+// Keep Railway Alive
+// --------------------
+setInterval(() => {
+  console.log('Jarvis is alive');
+}, 300000);
+
+// --------------------
+// Login
+// --------------------
 client.login(process.env.DISCORD_TOKEN);
