@@ -1,80 +1,105 @@
-// bot.js
-import 'dotenv/config'; // loads .env variables
-import { Client, GatewayIntentBits } from 'discord.js';
-import OpenAI from 'openai';
-import fetch from 'node-fetch'; // using ES Module import
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+require('dotenv').config(); // Loads variables from .env
+const { Client, GatewayIntentBits } = require('discord.js');
+const OpenAI = require('openai');
+const fetch = require('node-fetch'); // For pulling images from the web
 
-// Discord client setup
-const client = new Client({ 
+// Create Discord client
+const client = new Client({
     intents: [
-        GatewayIntentBits.Guilds, 
-        GatewayIntentBits.GuildMessages, 
-        GatewayIntentBits.MessageContent
-    ] 
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.DirectMessages
+    ],
+    partials: ['CHANNEL'] // Needed to receive DMs
 });
 
-// OpenAI setup
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Create OpenAI client
+const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY
+});
 
-// Bot ready event
-client.once('clientReady', () => {
+// When bot is ready
+client.on('ready', () => {
     console.log(`Logged in as ${client.user.tag}`);
 });
 
-// Message event
-client.on('messageCreate', async (message) => {
+// Command handler
+client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    // AI chat in DMs or with !jarvis in server
-    if (message.channel.type === 1 || message.content.startsWith('!jarvis')) { 
-        const prompt = message.channel.type === 1 ? message.content : message.content.replace('!jarvis', '');
-        
+    // ========== AI Chat ==========
+    if (message.content.startsWith('!jarvis')) {
+        const prompt = message.content.replace('!jarvis', '').trim();
+        if (!prompt) return;
+
         try {
             const response = await openai.chat.completions.create({
                 model: "gpt-3.5-turbo",
                 messages: [{ role: "user", content: prompt }]
             });
-            
+
             message.reply(response.choices[0].message.content);
         } catch (err) {
             console.error(err);
-            message.reply("⚠️ Sorry, I couldn't process that request.");
+            message.reply("Sorry, something went wrong with the AI.");
         }
     }
 
-    // Server management commands
-    if (message.guild) {
-        const args = message.content.trim().split(/ +/);
-        const command = args.shift().toLowerCase();
+    // ========== Server Management ==========
+    if (message.guild) { // Only run in servers
+        const isMod = message.member.permissions.has("BAN_MEMBERS");
 
-        // Permission check
-        const member = message.member;
-        if (!member.permissions.has('ModerateMembers') && !member.permissions.has('BanMembers')) return;
-
-        if (command === '!kick') {
-            const user = message.mentions.members.first();
-            const reason = args.slice(1).join(' ') || "No reason provided";
-            if (user) user.kick(reason).then(() => message.reply(`Kicked ${user.user.tag}`));
-        }
-
-        if (command === '!ban') {
-            const user = message.mentions.members.first();
-            const reason = args.slice(1).join(' ') || "No reason provided";
-            if (user) user.ban({ reason }).then(() => message.reply(`Banned ${user.user.tag}`));
-        }
-
-        if (command === '!purge') {
-            const amount = parseInt(args[0]);
-            if (!isNaN(amount) && amount > 0 && amount <= 100) {
-                message.channel.bulkDelete(amount + 1);
-            } else {
-                message.reply("Please provide a number between 1 and 100");
+        // Kick
+        if (message.content.startsWith('!kick') && isMod) {
+            const member = message.mentions.members.first();
+            if (member) {
+                const reason = message.content.split(' ').slice(2).join(' ') || 'No reason provided';
+                member.kick(reason).catch(console.error);
+                message.reply(`${member.user.tag} was kicked. Reason: ${reason}`);
             }
+        }
+
+        // Ban
+        if (message.content.startsWith('!ban') && isMod) {
+            const member = message.mentions.members.first();
+            if (member) {
+                const reason = message.content.split(' ').slice(2).join(' ') || 'No reason provided';
+                member.ban({ reason }).catch(console.error);
+                message.reply(`${member.user.tag} was banned. Reason: ${reason}`);
+            }
+        }
+
+        // Purge messages
+        if (message.content.startsWith('!purge') && isMod) {
+            const args = message.content.split(' ');
+            const deleteCount = parseInt(args[1], 10);
+            if (!deleteCount || deleteCount < 1 || deleteCount > 100) return message.reply("Enter a number between 1 and 100.");
+            message.channel.bulkDelete(deleteCount + 1, true).catch(console.error);
+        }
+    }
+
+    // ========== NSFW Images ==========
+    if ((message.channel.nsfw || message.channel.type === 'DM') && message.content.startsWith('!nsfw')) {
+        const query = message.content.replace('!nsfw', '').trim();
+        if (!query) return;
+
+        try {
+            const searchUrl = `https://api.waifu.im/search/?included_tags=${encodeURIComponent(query)}&is_nsfw=true`;
+            const res = await fetch(searchUrl);
+            const data = await res.json();
+
+            if (data.images && data.images.length > 0) {
+                message.reply({ content: data.images[0].url });
+            } else {
+                message.reply("No NSFW image found for that query.");
+            }
+        } catch (err) {
+            console.error(err);
+            message.reply("Error fetching NSFW image.");
         }
     }
 });
 
-// Login
+// Login to Discord
 client.login(process.env.DISCORD_TOKEN);
