@@ -1,8 +1,12 @@
-require('dotenv').config(); // Loads your .env
-const { Client, GatewayIntentBits, Partials, PermissionsBitField } = require('discord.js');
+require('dotenv').config();
+const { Client, GatewayIntentBits, PermissionsBitField } = require('discord.js');
 const { OpenAI } = require('openai');
-const fetch = require('node-fetch'); // v2 version
 
+// Dynamic import for node-fetch
+let fetch;
+(async () => { fetch = (await import('node-fetch')).default; })();
+
+// Discord client
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -10,30 +14,24 @@ const client = new Client({
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.DirectMessages
     ],
-    partials: [Partials.Channel] // Allows DMs
+    partials: ['CHANNEL'] // Allows DMs to work
 });
 
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY
-});
+// OpenAI client
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Ready Event
+// Bot ready
 client.on('ready', () => {
-    console.log(`Logged in as ${client.user.tag}`);
+    console.log(`Logged in as ${client.user.tag}!`);
 });
 
-// Message Event
-client.on('messageCreate', async (message) => {
+// Message handling
+client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    const isNSFW = message.channel.nsfw || message.channel.type === 'DM';
-
-    // ---- AI Chat ----
-    if (message.content.startsWith('!jarvis')) {
-        const prompt = message.content.replace('!jarvis', '').trim();
-
-        if (!prompt) return message.reply("Please give me something to respond to!");
-
+    // AI chat
+    if (message.channel.type === 1 || message.content.startsWith('!jarvis')) {
+        const prompt = message.channel.type === 1 ? message.content : message.content.replace('!jarvis', '');
         try {
             const response = await openai.chat.completions.create({
                 model: "gpt-3.5-turbo",
@@ -42,40 +40,48 @@ client.on('messageCreate', async (message) => {
             message.reply(response.choices[0].message.content);
         } catch (err) {
             console.error(err);
-            message.reply("Error contacting AI.");
+            message.reply("AI error!");
         }
     }
 
-    // ---- NSFW Image ----
-    if (message.content.startsWith('!nsfw')) {
-        if (!isNSFW) return message.reply("NSFW commands only allowed in NSFW channels or DMs.");
+    // Server management
+    if (message.content.startsWith('!kick') || message.content.startsWith('!ban') || message.content.startsWith('!purge')) {
+        if (!message.member.permissions.has(PermissionsBitField.Flags.KickMembers) &&
+            !message.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
+            return message.reply("No permission!");
+        }
 
-        // Example: pull a random image from the web (safe placeholder)
-        const imageUrl = 'https://placekitten.com/400/300'; // Replace with your source
-        message.reply({ content: "Here's something for you:", files: [imageUrl] });
+        if (message.content.startsWith('!kick')) {
+            const member = message.mentions.members.first();
+            if (member) member.kick();
+            message.reply("User kicked!");
+        }
+
+        if (message.content.startsWith('!ban')) {
+            const member = message.mentions.members.first();
+            if (member) member.ban();
+            message.reply("User banned!");
+        }
+
+        if (message.content.startsWith('!purge')) {
+            const count = parseInt(message.content.split(' ')[1]) || 1;
+            message.channel.bulkDelete(count + 1);
+            message.reply(`Deleted ${count} messages!`);
+        }
     }
 
-    // ---- Server Management ----
-    if (message.content.startsWith('!kick')) {
-        if (!message.member.permissions.has(PermissionsBitField.Flags.KickMembers)) return message.reply("You can't kick people!");
-        const member = message.mentions.members.first();
-        if (!member) return message.reply("Please mention someone to kick.");
-        member.kick().then(() => message.reply(`${member.user.tag} was kicked.`));
-    }
-
-    if (message.content.startsWith('!ban')) {
-        if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers)) return message.reply("You can't ban people!");
-        const member = message.mentions.members.first();
-        if (!member) return message.reply("Please mention someone to ban.");
-        member.ban().then(() => message.reply(`${member.user.tag} was banned.`));
-    }
-
-    if (message.content.startsWith('!purge')) {
-        if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return message.reply("You can't delete messages!");
-        const args = message.content.split(' ').slice(1);
-        const count = parseInt(args[0]);
-        if (!count || count < 1 || count > 100) return message.reply("Please specify a number between 1-100.");
-        message.channel.bulkDelete(count + 1).then(() => message.reply(`Deleted ${count} messages.`));
+    // NSFW images (example pulling from web)
+    if ((message.channel.nsfw || message.channel.type === 1) && message.content.startsWith('!nsfw')) {
+        const searchTerm = message.content.replace('!nsfw', '').trim() || "anime";
+        const url = `https://api.waifu.pics/nsfw/${searchTerm}`;
+        try {
+            const res = await fetch(url);
+            const data = await res.json();
+            message.reply({ content: data.url });
+        } catch (err) {
+            console.error(err);
+            message.reply("Could not fetch NSFW image!");
+        }
     }
 });
 
