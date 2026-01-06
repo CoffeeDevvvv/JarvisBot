@@ -1,15 +1,16 @@
 {
   "name": "jarvis-bot",
   "version": "1.0.0",
-  "description": "Jarvis Discord AI bot",
+  "description": "Jarvis Discord AI Bot",
   "main": "bot.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
-    "discord.js": "^15.0.0",
-    "dotenv": "^16.0.0",
-    "openai": "^4.0.0",
-    "node-fetch": "^2.6.7"
+    "discord.js": "^14.11.0",
+    "node-fetch": "^3.3.1",
+    "openai": "^4.3.1",
+    "dotenv": "^16.0.3"
   }
 }
