@@ -1,8 +1,8 @@
-// bot.mjs
-import 'dotenv/config';
-import { Client, GatewayIntentBits, Partials, PermissionsBitField } from 'discord.js';
-import OpenAI from 'openai';
-import fetch from 'node-fetch';
+// bot.js
+require('dotenv').config();
+const { Client, GatewayIntentBits, Partials, PermissionsBitField } = require('discord.js');
+const OpenAI = require('openai');
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 const client = new Client({
     intents: [
@@ -14,13 +14,12 @@ const client = new Client({
     partials: [Partials.Channel]
 });
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI.OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 client.on('ready', () => {
     console.log(`Logged in as ${client.user.tag}`);
 });
 
-// Utility function to check if a member has mod/admin permissions
 function isMod(member) {
     return member.permissions.has(PermissionsBitField.Flags.KickMembers) ||
            member.permissions.has(PermissionsBitField.Flags.BanMembers) ||
@@ -34,7 +33,7 @@ client.on('messageCreate', async (message) => {
 
     // Server management commands
     if (content.startsWith('!kick') || content.startsWith('!ban') || content.startsWith('!purge')) {
-        if (!message.guild) return; // only in servers
+        if (!message.guild) return;
         if (!isMod(message.member)) {
             message.reply("You don't have permission to use this command.");
             return;
@@ -68,9 +67,9 @@ client.on('messageCreate', async (message) => {
         }
     }
 
-    // NSFW image fetch command (only in NSFW channels or DMs)
+    // NSFW image fetch
     if (content.startsWith('!nsfw')) {
-        if (message.channel.type !== 1 && !message.channel.nsfw) { // DM=1, or check NSFW
+        if (message.channel.type !== 1 && !message.channel.nsfw) {
             message.reply("NSFW commands only work in NSFW channels or DMs.");
             return;
         }
@@ -86,7 +85,7 @@ client.on('messageCreate', async (message) => {
         }
     }
 
-    // Chat with AI
+    // AI chat
     if (content.startsWith('!jarvis')) {
         const prompt = content.replace('!jarvis', '').trim();
         if (!prompt) return message.reply("Please provide a prompt.");
